@@ -1,3 +1,6 @@
+mod bitio;
+mod codec;
+
 // 引入第三方包
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
