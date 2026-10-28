@@ -40,7 +40,8 @@ pub fn decompress_file(input: &Path, output: &Path, force: bool) -> Result<()> {
         .with_context(|| format!("reading {}", input.display()))?;
     let encoded = deserialize(&bytes)
         .with_context(|| format!("parsing {}", input.display()))?;
-    let data = decode(&encoded);
+    let data = decode(&encoded)
+        .with_context(|| format!("decoding {}", input.display()))?;
     fs::write(output, &data)
         .with_context(|| format!("writing {}", output.display()))?;
     println!(

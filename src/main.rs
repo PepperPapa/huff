@@ -41,14 +41,18 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("error: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Compress { input, output, force } => {
-            let output = match output {
-                Some(p) => p,
-                None => append_suffix(&input, ".huff"),
-            };
+            let output = output.unwrap_or_else(|| append_suffix(&input, ".huff"));
             app::compress_file(&input, &output, force)?;
         }
         Command::Decompress { input, output, force } => {

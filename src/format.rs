@@ -117,7 +117,7 @@ mod tests {
         let encoded = encode(data);
         let bytes = serialize(&encoded);
         let parsed = deserialize(&bytes).expect("valid header");
-        assert_eq!(decode(&parsed), data);
+        assert_eq!(decode(&parsed).unwrap(), data);
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod tests {
         let encoded = encode(&[]);
         let bytes = serialize(&encoded);
         let parsed = deserialize(&bytes).expect("valid header");
-        assert!(decode(&parsed).is_empty());
+        assert!(decode(&parsed).unwrap().is_empty());
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
         let encoded = encode(&data);
         assert!(encoded.stored.is_some(), "uniform 256 bytes should fall back to stored");
         let parsed = deserialize(&serialize(&encoded)).expect("valid header");
-        assert_eq!(decode(&parsed), data);
+        assert_eq!(decode(&parsed).unwrap(), data);
     }
 
     #[test]
