@@ -1,15 +1,15 @@
+use anyhow::{anyhow, Result};
+use clap::{Parser, Subcommand};
+use std::path::{Path, PathBuf};
+
+mod app;
 mod bitio;
 mod codec;
+mod format;
 
-// 引入第三方包
-use anyhow::{bail, Result};
-use clap::{Parser, Subcommand};
-// 标准库路径
-use std::path::PathBuf;
-
-// #[...]叫属性
+/// A minimal Huffman file compressor.
 #[derive(Parser)]
-#[command(name = "huff", version, about="A minimal Huffman file compressor.")]
+#[command(name = "huff", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -17,42 +17,64 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Compress a file into .huff
     Compress {
+        /// Input file
         input: PathBuf,
+        /// Output file (default: <input>.huff)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Overwrite output if it exists
+        #[arg(short, long)]
+        force: bool,
     },
+    /// Decompress a .huff file
     Decompress {
+        /// Input .huff file
         input: PathBuf,
+        /// Output file (default: strip .huff suffix)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Overwrite output if it exists
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
     match cli.command {
-        Command::Compress { input, output } => {
-            let output = output.unwrap_or_else(|| {
-                PathBuf::from(format!("{}.huff", input.display()))
-            });
-            if !input.exists() {
-                bail!("input file not found: {}", input.display());
-            }
-            println!("compress {} -> {}", input.display(), output.display());
+        Command::Compress { input, output, force } => {
+            let output = match output {
+                Some(p) => p,
+                None => append_suffix(&input, ".huff"),
+            };
+            app::compress_file(&input, &output, force)?;
         }
-        Command::Decompress { input, output } => {
-            let output = output.unwrap_or_else(|| {
-                let s = input.to_string_lossy();
-                let stripped = s.strip_suffix(".huff").unwrap_or(&s);
-                PathBuf::from(stripped)
-            });
-            if !input.exists() {
-                bail!("input file not found: {}", input.display());
-            }
-            println!("decompress {} -> {}", input.display(), output.display());
+        Command::Decompress { input, output, force } => {
+            let output = match output {
+                Some(p) => p,
+                None => strip_huff_suffix(&input)?,
+            };
+            app::decompress_file(&input, &output, force)?;
         }
     }
     Ok(())
+}
+
+fn append_suffix(input: &Path, suffix: &str) -> PathBuf {
+    let mut s = input.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+fn strip_huff_suffix(input: &Path) -> Result<PathBuf> {
+    let s = input.as_os_str().to_string_lossy();
+    let stripped = s.strip_suffix(".huff").ok_or_else(|| {
+        anyhow!(
+            "cannot infer output name from {} (no .huff suffix); pass --output",
+            input.display()
+        )
+    })?;
+    Ok(PathBuf::from(stripped))
 }

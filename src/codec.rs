@@ -42,12 +42,13 @@ pub struct Encoded {
     pub payload: Vec<u8>,
     pub freq: [u64; 256],
     pub orig_len: usize,
+    pub stored: Option<Vec<u8>>,
 }
 
 pub fn encode(data: &[u8]) -> Encoded {
     let freq = count_freq(data);
     if data.is_empty() {
-        return Encoded { payload: Vec::new(), freq, orig_len: 0 };
+        return Encoded { payload: Vec::new(), freq, orig_len: 0, stored: None };
     }
     let tree = build_tree(&freq).expect("non-empty data must produce a tree");
     let codes = build_codes(&tree);
@@ -55,10 +56,17 @@ pub fn encode(data: &[u8]) -> Encoded {
     for &b in data {
         w.write_bits(&codes[b as usize]);
     }
+    let compressed = w.finish();
+    let stored = if compressed.len() >= data.len() {
+        Some(data.to_vec())
+    } else {
+        None
+    };
     Encoded {
-        payload: w.finish(),
+        payload: compressed,
         freq,
         orig_len: data.len(),
+        stored,
     }
 }
 
@@ -66,22 +74,20 @@ pub fn decode(encoded: &Encoded) -> Vec<u8> {
     if encoded.orig_len == 0 {
         return Vec::new();
     }
+    if let Some(stored) = &encoded.stored {
+        return stored.clone();
+    }
     let tree = build_tree(&encoded.freq).expect("valid encoded data must produce a tree");
-
-    // 单符号：根是叶子，不读比特
     if let Node::Leaf { byte, .. } = tree.as_ref() {
         return vec![*byte; encoded.orig_len];
     }
-
     let mut reader = BitReader::new(&encoded.payload);
     let mut out = Vec::with_capacity(encoded.orig_len);
     let mut node = &tree;
     while out.len() < encoded.orig_len {
         let bit = reader.read_bit().expect("payload truncated");
         node = match node.as_ref() {
-            Node::Internal { left, right, .. } => {
-                if bit { right } else { left }
-            }
+            Node::Internal { left, right, .. } => if bit { right } else { left },
             Node::Leaf { .. } => unreachable!("leaf reached mid-traversal"),
         };
         if let Node::Leaf { byte, .. } = node.as_ref() {
