@@ -6,3 +6,27 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 clap = { version = "4.6.7", features = ["derive"] }
+
+[lib]
+name = "huff"
+path = "src/lib.rs"
+
+[[bin]]
+name = "huff"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+warnings = "warn"
+
+[lints.clippy]
+all = "warn"
+# 暂时不开 pedantic；等产品成熟后再逐步引入
+# pedantic = "warn"
+
+[profile.release]
+opt-level = 3        # 默认就是 3，写出来明确意图
+lto = "fat"          # 全程序链接时优化，运行时更快
+codegen-units = 1    # 更少并行单元，更好的优化
+strip = "symbols"    # 去掉符号表，二进制更小
+panic = "abort"      # panic 直接 abort，不 unwind，二进制更小

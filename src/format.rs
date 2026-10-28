@@ -12,28 +12,39 @@ pub enum FormatError {
     InvalidMagic,
     UnsupportedVersion(u8),
     UnknownFlags(u8),
+    LengthOverflow(u64),
     PayloadMismatch { expected: usize, got: usize },
 }
 
 impl std::fmt::Display for FormatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FormatError::TooShort { expected, got } =>
-                write!(f, "file too short: need at least {} bytes, got {}", expected, got),
-            FormatError::InvalidMagic =>
-                write!(f, "not a HUFF file: invalid magic bytes"),
-            FormatError::UnsupportedVersion(v) =>
-                write!(f, "unsupported format version: {} (this build supports {})", v, VERSION),
-            FormatError::UnknownFlags(b) =>
-                write!(f, "unknown flags in header: 0x{:02x}", b),
-            FormatError::PayloadMismatch { expected, got } =>
-                write!(f, "stored payload size mismatch: expected {}, got {}", expected, got),
+            Self::TooShort { expected, got } => write!(
+                f,
+                "file too short: need at least {expected} bytes, got {got}"
+            ),
+            Self::InvalidMagic => write!(f, "not a HUFF file: invalid magic bytes"),
+            Self::UnsupportedVersion(v) => write!(
+                f,
+                "unsupported format version: {v} (this build supports {VERSION})"
+            ),
+            Self::UnknownFlags(b) => write!(f, "unknown flags in header: 0x{b:02x}"),
+            Self::LengthOverflow(v) => write!(
+                f,
+                "declared original length {v} does not fit in usize on this platform"
+            ),
+            Self::PayloadMismatch { expected, got } => write!(
+                f,
+                "stored payload size mismatch: expected {expected}, got {got}"
+            ),
         }
     }
 }
 
 impl std::error::Error for FormatError {}
 
+/// Serialize an `Encoded` value into the v1 on-disk format.
+#[must_use]
 pub fn serialize(encoded: &Encoded) -> Vec<u8> {
     let is_stored = encoded.stored.is_some();
     let payload: &[u8] = match &encoded.stored {
@@ -52,9 +63,20 @@ pub fn serialize(encoded: &Encoded) -> Vec<u8> {
     out
 }
 
+/// Parse a v1 HUFF file.
+///
+/// # Errors
+///
+/// Returns [`FormatError`] if the input is too short, has a bad
+/// magic/version/flags, declares an `orig_len` that does not fit
+/// in `usize`, or has a stored payload whose length disagrees
+/// with `orig_len`.
 pub fn deserialize(bytes: &[u8]) -> Result<Encoded, FormatError> {
     if bytes.len() < HEADER_SIZE {
-        return Err(FormatError::TooShort { expected: HEADER_SIZE, got: bytes.len() });
+        return Err(FormatError::TooShort {
+            expected: HEADER_SIZE,
+            got: bytes.len(),
+        });
     }
     if !bytes.starts_with(MAGIC) {
         return Err(FormatError::InvalidMagic);
@@ -71,18 +93,17 @@ pub fn deserialize(bytes: &[u8]) -> Result<Encoded, FormatError> {
 
     let mut len_bytes = [0u8; 8];
     len_bytes.copy_from_slice(&bytes[6..14]);
-    let orig_len = u64::from_le_bytes(len_bytes) as usize;
+    let orig_len_u64 = u64::from_le_bytes(len_bytes);
+    let orig_len =
+        usize::try_from(orig_len_u64).map_err(|_| FormatError::LengthOverflow(orig_len_u64))?;
 
     let mut freq = [0u64; 256];
-    for i in 0..256 {
-        let start = 14 + i * 8;
-        let mut fb = [0u8; 8];
-        fb.copy_from_slice(&bytes[start..start + 8]);
-        freq[i] = u64::from_le_bytes(fb);
+    let (chunks, _) = bytes[14..14 + 256 * 8].as_chunks::<8>();
+    for (slot, chunk) in freq.iter_mut().zip(chunks) {
+        *slot = u64::from_le_bytes(*chunk);
     }
 
     let payload_bytes = &bytes[HEADER_SIZE..];
-
     if is_stored {
         if payload_bytes.len() != orig_len {
             return Err(FormatError::PayloadMismatch {
@@ -107,6 +128,11 @@ pub fn deserialize(bytes: &[u8]) -> Result<Encoded, FormatError> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::assert_is_empty,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 mod tests {
     use super::*;
     use crate::codec::{decode, encode};
@@ -162,7 +188,10 @@ mod tests {
     fn uniform_256_bytes_uses_stored() {
         let data: Vec<u8> = (0..=255u8).collect();
         let encoded = encode(&data);
-        assert!(encoded.stored.is_some(), "uniform 256 bytes should fall back to stored");
+        assert!(
+            encoded.stored.is_some(),
+            "uniform 256 bytes should fall back to stored"
+        );
         let parsed = deserialize(&serialize(&encoded)).expect("valid header");
         assert_eq!(decode(&parsed).unwrap(), data);
     }

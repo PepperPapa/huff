@@ -7,11 +7,7 @@ fn huff_bin() -> PathBuf {
 }
 
 fn tempdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "huff-test-{}-{}",
-        name,
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("huff-test-{}-{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -90,7 +86,11 @@ fn cli_refuses_to_overwrite_without_force() {
         .status()
         .unwrap();
     assert!(!s.success(), "should refuse to overwrite without --force");
-    assert_eq!(fs::read(&compressed).unwrap(), b"existing", "file must be untouched");
+    assert_eq!(
+        fs::read(&compressed).unwrap(),
+        b"existing",
+        "file must be untouched"
+    );
 
     let s = Command::new(&bin)
         .arg("compress")

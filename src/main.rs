@@ -1,11 +1,8 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
-mod app;
-mod bitio;
-mod codec;
-mod format;
+use huff::app;
 
 /// A minimal Huffman file compressor.
 #[derive(Parser)]
@@ -51,11 +48,19 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Compress { input, output, force } => {
+        Command::Compress {
+            input,
+            output,
+            force,
+        } => {
             let output = output.unwrap_or_else(|| append_suffix(&input, ".huff"));
             app::compress_file(&input, &output, force)?;
         }
-        Command::Decompress { input, output, force } => {
+        Command::Decompress {
+            input,
+            output,
+            force,
+        } => {
             let output = match output {
                 Some(p) => p,
                 None => strip_huff_suffix(&input)?,

@@ -1,30 +1,37 @@
 #[derive(Debug)]
 pub enum CodecError {
-    /// orig_len > 0 但频率表全为 0，文件头损坏
+    /// `orig_len` > 0 但频率表全为 0，文件头损坏
     EmptyFreqTable,
-    /// payload 不足以解码出 orig_len 个字节
+    /// payload 不足以解码出 `orig_len` 个字节
     TruncatedPayload,
-    /// stored 模式长度与 orig_len 不一致
+    /// stored 模式长度与 `orig_len` 不一致
     StoredLengthMismatch { expected: usize, got: usize },
     /// 解码路径意外走到叶子（理论不可达，防御性保留）
     InvalidTraversal,
-    /// 预分配 orig_len 字节失败（恶意头部）
+    /// 预分配 `orig_len` 字节失败（恶意头部）
     AllocationFailed { requested: usize },
 }
 
 impl std::fmt::Display for CodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CodecError::EmptyFreqTable =>
-                write!(f, "corrupt header: original length is non-zero but frequency table is empty"),
-            CodecError::TruncatedPayload =>
-                write!(f, "corrupt payload: bitstream ended before all bytes were decoded"),
-            CodecError::StoredLengthMismatch { expected, got } =>
-                write!(f, "corrupt stored payload: expected {} bytes, got {}", expected, got),
-            CodecError::InvalidTraversal =>
-                write!(f, "corrupt payload: invalid huffman traversal"),
-            CodecError::AllocationFailed { requested } =>
-                write!(f, "cannot allocate {} bytes for decompressed output", requested),
+            Self::EmptyFreqTable => write!(
+                f,
+                "corrupt header: original length is non-zero but frequency table is empty"
+            ),
+            Self::TruncatedPayload => write!(
+                f,
+                "corrupt payload: bitstream ended before all bytes were decoded"
+            ),
+            Self::StoredLengthMismatch { expected, got } => write!(
+                f,
+                "corrupt stored payload: expected {expected} bytes, got {got}"
+            ),
+            Self::InvalidTraversal => write!(f, "corrupt payload: invalid huffman traversal"),
+            Self::AllocationFailed { requested } => write!(
+                f,
+                "cannot allocate {requested} bytes for decompressed output"
+            ),
         }
     }
 }
@@ -37,15 +44,21 @@ use std::collections::BinaryHeap;
 
 #[derive(Debug)]
 enum Node {
-    Leaf { byte: u8, freq: u64 },
-    Internal { freq: u64, left: Box<Node>, right: Box<Node> },
+    Leaf {
+        byte: u8,
+        freq: u64,
+    },
+    Internal {
+        freq: u64,
+        left: Box<Node>,
+        right: Box<Node>,
+    },
 }
 
 impl Node {
     fn freq(&self) -> u64 {
         match self {
-            Node::Leaf { freq, .. } => *freq,
-            Node::Internal { freq, .. } => *freq,
+            Node::Leaf { freq, .. } | Node::Internal { freq, .. } => *freq,
         }
     }
 }
@@ -78,10 +91,23 @@ pub struct Encoded {
     pub stored: Option<Vec<u8>>,
 }
 
+/// Encode `data` into an `Encoded` representation.
+///
+/// # Panics
+///
+/// Panics if `data` is non-empty but `build_tree` returns `None`.
+/// This cannot happen: non-empty input has at least one byte with
+/// non-zero frequency, so the heap is non-empty.
+#[must_use]
 pub fn encode(data: &[u8]) -> Encoded {
     let freq = count_freq(data);
     if data.is_empty() {
-        return Encoded { payload: Vec::new(), freq, orig_len: 0, stored: None };
+        return Encoded {
+            payload: Vec::new(),
+            freq,
+            orig_len: 0,
+            stored: None,
+        };
     }
     let tree = build_tree(&freq).expect("non-empty data must produce a tree");
     let codes = build_codes(&tree);
@@ -95,9 +121,21 @@ pub fn encode(data: &[u8]) -> Encoded {
     } else {
         None
     };
-    Encoded { payload: compressed, freq, orig_len: data.len(), stored }
+    Encoded {
+        payload: compressed,
+        freq,
+        orig_len: data.len(),
+        stored,
+    }
 }
 
+/// Decode `encoded` back into the original bytes.
+///
+/// # Errors
+///
+/// Returns [`CodecError`] if the frequency table is empty, the
+/// payload is truncated, stored length mismatches `orig_len`, or
+/// allocation for the output buffer fails.
 pub fn decode(encoded: &Encoded) -> Result<Vec<u8>, CodecError> {
     if encoded.orig_len == 0 {
         return Ok(Vec::new());
@@ -118,7 +156,9 @@ pub fn decode(encoded: &Encoded) -> Result<Vec<u8>, CodecError> {
     if let Node::Leaf { byte, .. } = tree.as_ref() {
         let mut out = Vec::new();
         out.try_reserve(encoded.orig_len)
-            .map_err(|_| CodecError::AllocationFailed { requested: encoded.orig_len })?;
+            .map_err(|_| CodecError::AllocationFailed {
+                requested: encoded.orig_len,
+            })?;
         out.resize(encoded.orig_len, *byte);
         return Ok(out);
     }
@@ -126,13 +166,21 @@ pub fn decode(encoded: &Encoded) -> Result<Vec<u8>, CodecError> {
     let mut reader = BitReader::new(&encoded.payload);
     let mut out = Vec::new();
     out.try_reserve(encoded.orig_len)
-        .map_err(|_| CodecError::AllocationFailed { requested: encoded.orig_len })?;
+        .map_err(|_| CodecError::AllocationFailed {
+            requested: encoded.orig_len,
+        })?;
 
     let mut node = &tree;
     while out.len() < encoded.orig_len {
         let bit = reader.read_bit().ok_or(CodecError::TruncatedPayload)?;
         node = match node.as_ref() {
-            Node::Internal { left, right, .. } => if bit { right } else { left },
+            Node::Internal { left, right, .. } => {
+                if bit {
+                    right
+                } else {
+                    left
+                }
+            }
             Node::Leaf { .. } => return Err(CodecError::InvalidTraversal),
         };
         if let Node::Leaf { byte, .. } = node.as_ref() {
@@ -153,11 +201,13 @@ fn count_freq(data: &[u8]) -> [u64; 256] {
 
 fn build_tree(freq: &[u64; 256]) -> Option<Box<Node>> {
     let mut heap: BinaryHeap<Box<Node>> = BinaryHeap::new();
-    for (byte, &f) in freq.iter().enumerate() {
+    for byte in 0..=255u8 {
+        let f = freq[byte as usize];
         if f > 0 {
-            heap.push(Box::new(Node::Leaf { byte: byte as u8, freq: f }));
+            heap.push(Box::new(Node::Leaf { byte, freq: f }));
         }
     }
+    // 下面的 while 不变
     if heap.is_empty() {
         return None;
     }
@@ -165,7 +215,11 @@ fn build_tree(freq: &[u64; 256]) -> Option<Box<Node>> {
         let a = heap.pop().unwrap();
         let b = heap.pop().unwrap();
         let f = a.freq() + b.freq();
-        heap.push(Box::new(Node::Internal { freq: f, left: a, right: b }));
+        heap.push(Box::new(Node::Internal {
+            freq: f,
+            left: a,
+            right: b,
+        }));
     }
     heap.pop()
 }
@@ -180,7 +234,7 @@ fn build_codes(root: &Node) -> [Vec<bool>; 256] {
 fn walk(node: &Node, path: &mut Vec<bool>, codes: &mut [Vec<bool>; 256]) {
     match node {
         Node::Leaf { byte, .. } => {
-            codes[*byte as usize] = path.clone();
+            codes[*byte as usize].clone_from(path);
         }
         Node::Internal { left, right, .. } => {
             path.push(false);
@@ -194,6 +248,11 @@ fn walk(node: &Node, path: &mut Vec<bool>, codes: &mut [Vec<bool>; 256]) {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::assert_is_empty,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 mod tests {
     use super::*;
 
@@ -284,7 +343,13 @@ mod tests {
             stored: Some(vec![1, 2, 3]),
         };
         let err = decode(&e).unwrap_err();
-        assert!(matches!(err, CodecError::StoredLengthMismatch { expected: 10, got: 3 }));
+        assert!(matches!(
+            err,
+            CodecError::StoredLengthMismatch {
+                expected: 10,
+                got: 3
+            }
+        ));
     }
 
     #[test]

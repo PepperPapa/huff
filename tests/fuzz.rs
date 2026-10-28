@@ -7,11 +7,7 @@ fn huff_bin() -> PathBuf {
 }
 
 fn tempdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "huff-fuzz-{}-{}",
-        name,
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("huff-fuzz-{}-{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -62,12 +58,7 @@ fn fuzz_random_bytes_never_panics() {
         let output = dir.join(format!("rand-{}.out", i));
         fs::write(&input, &bytes).unwrap();
 
-        assert_no_panic(
-            &bin,
-            &input,
-            &output,
-            &format!("random input len={}", len),
-        );
+        assert_no_panic(&bin, &input, &output, &format!("random input len={}", len));
     }
 
     let _ = fs::remove_dir_all(&dir);
@@ -99,12 +90,7 @@ fn fuzz_truncated_valid_file_never_panics() {
         let out = dir.join(format!("trunc-{}.out", cut));
         fs::write(&truncated, &full[..cut]).unwrap();
 
-        assert_no_panic(
-            &bin,
-            &truncated,
-            &out,
-            &format!("truncation at {}", cut),
-        );
+        assert_no_panic(&bin, &truncated, &out, &format!("truncation at {}", cut));
     }
 
     let _ = fs::remove_dir_all(&dir);
@@ -138,12 +124,7 @@ fn fuzz_bit_flip_never_panics() {
         let out = dir.join(format!("bad-{}.out", pos));
         fs::write(&bad, &corrupted).unwrap();
 
-        assert_no_panic(
-            &bin,
-            &bad,
-            &out,
-            &format!("bit flip at {}", pos),
-        );
+        assert_no_panic(&bin, &bad, &out, &format!("bit flip at {}", pos));
     }
 
     let _ = fs::remove_dir_all(&dir);

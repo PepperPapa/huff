@@ -5,6 +5,7 @@ pub struct BitWriter {
 }
 
 impl BitWriter {
+    #[must_use]
     pub fn new() -> Self {
         BitWriter {
             bytes: Vec::new(),
@@ -28,6 +29,8 @@ impl BitWriter {
             self.write_bit(b);
         }
     }
+
+    #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
         if self.nbits > 0 {
             self.bytes.push(self.current);
@@ -36,14 +39,21 @@ impl BitWriter {
     }
 }
 
+impl Default for BitWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct BitReader<'a> {
-    data: &'a[u8],
+    data: &'a [u8],
     byte_pos: usize,
     bit_pos: u8,
 }
 
 impl<'a> BitReader<'a> {
-    pub fn new(data: &'a[u8]) -> Self {
+    #[must_use]
+    pub fn new(data: &'a [u8]) -> Self {
         BitReader {
             data,
             byte_pos: 0,
